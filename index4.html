@@ -106,10 +106,10 @@
     function initConfiguration() {
         currentConfig = {
             max_cycles: getRandomChoice([25000, 30000]),
-            initial_cracks: getRandomChoice([1, 2, 4, 8, 16]),
+            initial_cracks: getRandomChoice([0, 0, 1, 2, 4, 8, 16]),
             max_cracks: getRandomChoice([128, 256]),
             circle_percent: getRandomChoice([0.0, 12.5, 50.0, 75.0, 100.0, 100.0]),
-            angle_sensitivity: getRandomChoice([0.25, 2.5, 5.0, 45.0])
+            angle_sensitivity: getRandomChoice([0.25, 2.5, 5.0, 45.0, 90.0])
         };
         currentPalette = getRandomChoice(PALETTES);
 
