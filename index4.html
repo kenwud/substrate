@@ -107,7 +107,7 @@
         currentConfig = {
             max_cycles: getRandomChoice([25000, 30000]),
             initial_cracks: getRandomChoice([1, 2, 4, 8, 16]),
-            max_cracks: getRandomChoice([64, 128]),
+            max_cracks: getRandomChoice([64, 128, 256]),
             circle_percent: getRandomChoice([0.0, 12.5, 50.0, 75.0, 100.0, 100.0]),
             angle_sensitivity: getRandomChoice([2.5, 5.0, 45.0])
         };
@@ -146,7 +146,7 @@
             
 				const max_r = (width + height) / 3;
 				// Lower exponent = larger circles, Higher exponent (e.g. 2.5) = tighter loops
-				let r = 15 + Math.floor(Math.pow(Math.random(), 8) * max_r);
+				let r = 30 + Math.floor(Math.pow(Math.random(), 10) * max_r);
 				if (Math.random() < 0.5) r *= -1;
 
 				const radian_inc = 0.42 / r;
