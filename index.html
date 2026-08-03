@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Touch Substrate Generator</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            width: 100%;
+            height: 100%;
+            font-family: sans-serif;
+        }
+        canvas {
+            display: block;
+            touch-action: none; /* Disables default mobile scrolling/zooming */
+        }
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            pointer-events: none;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">Drag finger to spawn crystal cracks</div>
+    <canvas id="substrateCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('substrateCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let cgrid; // Collision grid matching pixel dimensions
+        let cracks = [];
+        const MAX_CRACKS = 80;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+
+            // Initialize collision grid with a high sentinel value (-1 means empty)
+            cgrid = new Int32Array(width * height);
+            cgrid.fill(-1);
+
+            // Clear background
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Crack {
+            constructor(x, y, angle) {
+                this.x = x;
+                this.y = y;
+                this.angle = angle; // in radians
+                this.stepX = Math.cos(angle);
+                this.stepY = Math.sin(angle);
+                this.isAlive = true;
+            }
+
+            step() {
+                if (!this.isAlive) return;
+
+                // Move forward a few sub-steps per frame for smooth growth speed
+                for (let s = 0; s < 2; s++) {
+                    this.x += this.stepX;
+                    this.y += this.stepY;
+
+                    const ix = Math.floor(this.x);
+                    const iy = Math.floor(this.y);
+
+                    // Check bounds & collision
+                    if (ix < 0 || ix >= width || iy < 0 || iy >= height) {
+                        this.isAlive = false;
+                        break;
+                    }
+
+                    const gridIdx = iy * width + ix;
+                    if (cgrid[gridIdx] !== -1 && cgrid[gridIdx] !== Math.round(this.angle * 100)) {
+                        // Hit another line or border -> terminate and spawn perpendicular branches
+                        this.isAlive = false;
+                        spawnBranch(this.x, this.y, this.angle);
+                        spawnBranch(this.x, this.y, this.angle);
+                        break;
+                    }
+
+                    // Mark pixel occupied with encoded angle
+                    cgrid[gridIdx] = Math.round(this.angle * 100);
+
+                    // Draw pixel to canvas (Wireframe monochrome style)
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(ix, iy, 1, 1);
+                }
+            }
+        }
+
+        function spawnCrack(x, y, customAngle = null) {
+            if (cracks.length >= MAX_CRACKS) return;
+            // Default random orthogonal angle if none provided
+            const angle = customAngle !== null ? customAngle : Math.floor(Math.random() * 4) * (Math.PI / 2);
+            cracks.push(new Crack(x, y, angle));
+        }
+
+        function spawnBranch(x, y, parentAngle) {
+            if (cracks.length >= MAX_CRACKS) return;
+            // Branch perpendicularly (+90 or -90 degrees)
+            const angleOffset = Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2;
+            cracks.push(new Crack(x, y, parentAngle + angleOffset));
+        }
+
+        // Handle Touch and Mouse Dragging to Draw Crack Origins
+        function handleInteraction(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            // Seed 1-2 cracks directly along the touch path
+            spawnCrack(x, y, Math.random() * Math.PI * 2);
+        }
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.touches.length; i++) {
+                handleInteraction(e.touches[i].clientX, e.touches[i].clientY);
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (e.buttons === 1) { // Left click drag
+                handleInteraction(e.clientX, e.clientY);
+            }
+        });
+
+        // Seed initial automatic cracks on load
+        for (let i = 0; i < 3; i++) {
+            spawnCrack(Math.random() * width, Math.random() * height);
+        }
+
+        // Main Simulation Loop
+        function loop() {
+            // Update and step active cracks
+            for (let i = cracks.length - 1; i >= 0; i--) {
+                cracks[i].step();
+                if (!cracks[i].isAlive) {
+                    cracks.splice(i, 1);
+                }
+            }
+
+            // If crack count dips too low, periodically inject a random seed to keep the canvas alive
+            if (cracks.length < 5 && Math.random() < 0.05) {
+                spawnCrack(Math.random() * width, Math.random() * height);
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
