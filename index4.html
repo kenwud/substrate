@@ -146,7 +146,7 @@
             
 				const max_r = (width + height) / 3;
 				// Lower exponent = larger circles, Higher exponent (e.g. 2.5) = tighter loops
-				let r = 8 + Math.floor(Math.pow(Math.random(), 2.5) * max_r);
+				let r = 15 + Math.floor(Math.pow(Math.random(), 8) * max_r);
 				if (Math.random() < 0.5) r *= -1;
 
 				const radian_inc = 0.42 / r;
