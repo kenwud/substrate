@@ -258,9 +258,9 @@
             }
         }
 
-        if (cracks.length < 3 && Math.random() < 0.05) {
-            spawnCrack(Math.random() * width, Math.random() * height);
-        }
+        if (currentConfig.initial_cracks > 0 && cracks.length < 3 && Math.random() < 0.05) {
+  		  spawnCrack(Math.random() * width, Math.random() * height);
+		}
 
         requestAnimationFrame(loop);
     }
