@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Substrate Generator - Advanced Config & Palettes</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            width: 100%;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            pointer-events: none;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+            line-height: 1.4;
+        }
+        #reset-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            backdrop-filter: blur(5px);
+            transition: background 0.2s, transform 0.1s;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #reset-btn:active {
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="info-theme">Theme: Loading...</div>
+        <div id="info-config">Config: Loading...</div>
+    </div>
+    <button id="reset-btn">Regenerate</button>
+    <canvas id="substrateCanvas"></canvas>
+
+    <script>
+    const canvas = document.getElementById('substrateCanvas');
+    const ctx = canvas.getContext('2d');
+    const infoTheme = document.getElementById('info-theme');
+    const infoConfig = document.getElementById('info-config');
+    const resetBtn = document.getElementById('reset-btn');
+
+    let width, height;
+    let cgrid; 
+    let cracks = [];
+    let currentConfig = {};
+    let currentPalette = {};
+
+    const PALETTES = [
+        {
+            name: "Neon Cyberpunk",
+            bg: [10, 10, 18],
+            colors: [[0, 255, 204], [255, 0, 127], [147, 0, 255], [0, 128, 255]]
+        },
+        {
+            name: "Matrix Code",
+            bg: [5, 12, 5],
+            colors: [[0, 255, 65], [100, 255, 100], [0, 180, 50], [200, 255, 200]]
+        },
+        {
+            name: "Sunset Fire",
+            bg: [15, 10, 15],
+            colors: [[255, 69, 0], [255, 140, 0], [255, 215, 0], [220, 20, 60]]
+        },
+        {
+            name: "Deep Ocean",
+            bg: [5, 10, 20],
+            colors: [[0, 119, 182], [0, 180, 216], [72, 202, 228], [144, 224, 239]]
+        },
+        {
+            name: "Monochrome Minimal",
+            bg: [0, 0, 0],
+            colors: [[255, 255, 255], [200, 200, 200], [150, 150, 150], [240, 240, 240]]
+        }
+    ];
+
+    function getRandomChoice(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function initConfiguration() {
+        currentConfig = {
+            max_cycles: getRandomChoice([25000, 30000]),
+            initial_cracks: getRandomChoice([1, 2, 4, 8, 16]),
+            max_cracks: getRandomChoice([16, 24, 48, 64, 86]),
+            circle_percent: getRandomChoice([0.0, 12.5, 50.0, 75.0, 100.0, 100.0]),
+            angle_sensitivity: getRandomChoice([1.0, 2.5, 5.0, 10.0])
+        };
+        currentPalette = getRandomChoice(PALETTES);
+
+        infoTheme.innerText = `Theme: ${currentPalette.name}`;
+        infoConfig.innerText = `Cracks: ${currentConfig.initial_cracks} (Max: ${currentConfig.max_cracks}) | Circle%: ${currentConfig.circle_percent}%`;
+    }
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        resetSimulation();
+    }
+
+    window.addEventListener('resize', resize);
+
+    class Crack {
+        constructor(x, y, angleDeg) {
+            this.x = x;
+            this.y = y;
+            this.angle = (angleDeg + 360) % 360; // Deg 0-360
+            this.isAlive = true;
+            this.color = getRandomChoice(currentPalette.colors);
+            this.degreesDrawn = 0;
+
+            // Curved properties (Exact match to Python engine)
+            this.curved = Math.random() * 100 < currentConfig.circle_percent;
+            this.t_inc = 0;
+            this.xs = 0;
+            this.ys = 0;
+
+            if (this.curved) {
+                let r = 10 + Math.floor(Math.random() * ((width + height) / 2));
+                if (Math.random() < 0.5) r *= -1;
+                const radian_inc = 0.42 / r;
+                this.t_inc = (radian_inc * 360) / (2 * Math.PI);
+                this.ys = r * Math.sin(radian_inc);
+                this.xs = r * (1.0 - Math.cos(radian_inc));
+            }
+        }
+
+        step() {
+            if (!this.isAlive) return;
+
+            for (let s = 0; s < 2; s++) {
+                const rad = (this.angle * Math.PI) / 180.0;
+
+                if (!this.curved) {
+                    this.x += Math.cos(rad);
+                    this.y += Math.sin(rad);
+                } else {
+                    this.x += this.ys * Math.cos(rad) + this.xs * Math.cos(rad - Math.PI / 2.0);
+                    this.y += this.ys * Math.sin(rad) + this.xs * Math.sin(rad - Math.PI / 2.0);
+                    this.angle += this.t_inc;
+                    this.degreesDrawn += Math.abs(this.t_inc);
+                }
+
+                const ix = Math.floor(this.x);
+                const iy = Math.floor(this.y);
+
+                if (ix < 0 || ix >= width || iy < 0 || iy >= height) {
+                    this.isAlive = false;
+                    break;
+                }
+
+                const gridIdx = iy * width + ix;
+                const cellVal = cgrid[gridIdx];
+
+                if (this.curved && this.degreesDrawn > 360.0) {
+                    this.isAlive = false;
+                    spawnBranch(this.x, this.y, this.angle);
+                    break;
+                } else if (cellVal > 10000 || Math.abs(cellVal - this.angle) < currentConfig.angle_sensitivity) {
+                    cgrid[gridIdx] = Math.floor(this.angle);
+                    ctx.fillStyle = `rgb(${this.color[0]}, ${this.color[1]}, ${this.color[2]})`;
+                    ctx.fillRect(ix, iy, 1, 1);
+                } else if (Math.abs(cellVal - this.angle) > 2.0) {
+                    this.isAlive = false;
+                    spawnBranch(this.x, this.y, this.angle);
+                    break;
+                }
+            }
+        }
+    }
+
+    function spawnCrack(x, y, angleDeg = null) {
+        if (cracks.length >= currentConfig.max_cracks) return;
+        const a = angleDeg !== null ? angleDeg : Math.floor(Math.random() * 360);
+        cracks.push(new Crack(x, y, a));
+    }
+
+    function spawnBranch(x, y, parentAngleDeg) {
+        if (cracks.length >= currentConfig.max_cracks) return;
+        const offset = Math.random() < 0.5 ? 90 : -90;
+        cracks.push(new Crack(x, y, parentAngleDeg + offset));
+    }
+
+    function resetSimulation() {
+        initConfiguration();
+        cgrid = new Int32Array(width * height);
+        cgrid.fill(10001); // 10001 = empty cell
+        cracks = [];
+
+        ctx.fillStyle = `rgb(${currentPalette.bg[0]}, ${currentPalette.bg[1]}, ${currentPalette.bg[2]})`;
+        ctx.fillRect(0, 0, width, height);
+
+        for (let i = 0; i < currentConfig.initial_cracks; i++) {
+            spawnCrack(Math.random() * width, Math.random() * height);
+        }
+    }
+
+    resetBtn.addEventListener('click', resetSimulation);
+
+    function handleInteraction(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        spawnCrack(x, y, Math.random() * 360);
+    }
+
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        for (let i = 0; i < e.touches.length; i++) {
+            handleInteraction(e.touches[i].clientX, e.touches[i].clientY);
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (e.buttons === 1) {
+            handleInteraction(e.clientX, e.clientY);
+        }
+    });
+
+    resize();
+
+    function loop() {
+        for (let i = cracks.length - 1; i >= 0; i--) {
+            cracks[i].step();
+            if (!cracks[i].isAlive) {
+                cracks.splice(i, 1);
+            }
+        }
+
+        if (cracks.length < 3 && Math.random() < 0.05) {
+            spawnCrack(Math.random() * width, Math.random() * height);
+        }
+
+        requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+	</script>
+</body>
+</html>
