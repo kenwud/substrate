@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excitable Waves - GLSL Cellular Automaton</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #e1e1e6;
+        }
+
+        /* Full-screen background canvas */
+        .canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            touch-action: none;
+        }
+        .canvas-container canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Floating Top-Left Info (Borderless & Backgroundless) */
+        .overlay-info {
+            position: fixed;
+            top: 24px;
+            left: 24px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .overlay-info h1 {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: #c1c1c6;
+            margin-bottom: 3px;
+            letter-spacing: 0.03em;
+        }
+        .overlay-info p {
+            font-size: 0.75rem;
+            color: #77777d;
+            letter-spacing: 0.05em;
+        }
+
+        /* Floating Bottom-Right Controls (Borderless & Backgroundless) */
+        .overlay-controls {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            pointer-events: auto;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .control-group label {
+            font-size: 0.65rem;
+            color: #77777d;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .control-group input[type="range"] {
+            accent-color: #05d9e8;
+            cursor: pointer;
+            width: 110px;
+            background: transparent;
+        }
+        .action-btn {
+            background: rgba(25, 25, 30, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #e1e1e6;
+            padding: 7px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-family: inherit;
+            letter-spacing: 0.03em;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .action-btn:hover {
+            background: rgba(45, 45, 55, 0.7);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        @media (max-width: 600px) {
+            .overlay-controls {
+                left: 24px;
+                right: 24px;
+                justify-content: space-between;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Fullscreen Canvas -->
+    <div class="canvas-container" id="canvas-container">
+        <canvas id="glsl-canvas"></canvas>
+    </div>
+
+    <!-- Floating Top-Left Info HUD -->
+    <div class="overlay-info">
+        <h1>Excitable Waves (Brian's Brain)</h1>
+        <p>Grid Rows: <span id="rows-val">90</span></p>
+    </div>
+
+    <!-- Floating Bottom-Right Controls HUD -->
+    <div class="overlay-controls">
+        <div class="control-group">
+            <label for="rows-range">Grid Density</label>
+            <input type="range" id="rows-range" min="30" max="180" step="5" value="90">
+        </div>
+        <button id="shader-clear" class="action-btn">Clear</button>
+    </div>
+
+    <!-- Vertex Shader -->
+    <script id="2d-vertex-shader" type="not-js">
+        attribute vec2 a_position;
+        void main() {
+            gl_Position = vec4(a_position, 0.0, 1.0);
+        }
+    </script>
+
+    <!-- Fragment Shader -->
+    <script id="2d-fragment-shader" type="not-js">
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+
+    uniform vec2 resolution;
+    uniform float time;
+    uniform float startRandom;
+    uniform float cellRows;
+    uniform int pointerCount;
+    uniform vec3 pointers[10];
+    uniform sampler2D backbuffer;
+
+    const float DECAY = 0.70;
+    const float BLOOM = 0.030;
+    const float SPARK = 1.99;
+
+    vec4 cellAt(vec2 c, float cell, vec2 grid) {
+        c = mod(c, grid);
+        return texture2D(backbuffer, (c + 0.5) * cell / resolution);
+    }
+
+    float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+
+    void main() {
+        float cell = max(2.0, floor(resolution.y / cellRows));
+        vec2 grid = floor(resolution / cell);
+        vec2 c = mod(floor(gl_FragCoord.xy / cell), grid);
+
+        vec4 self = cellAt(c, cell, grid);
+        vec4 n0 = cellAt(c + vec2(-1.0, -1.0), cell, grid);
+        vec4 n1 = cellAt(c + vec2( 0.0, -1.0), cell, grid);
+        vec4 n2 = cellAt(c + vec2( 1.0, -1.0), cell, grid);
+        vec4 n3 = cellAt(c + vec2(-1.0,  0.0), cell, grid);
+        vec4 n4 = cellAt(c + vec2( 1.0,  0.0), cell, grid);
+        vec4 n5 = cellAt(c + vec2(-1.0,  1.0), cell, grid);
+        vec4 n6 = cellAt(c + vec2( 0.0,  1.0), cell, grid);
+        vec4 n7 = cellAt(c + vec2( 1.0,  1.0), cell, grid);
+
+        float fireSum =
+            step(0.9, n0.a) + step(0.9, n1.a) +
+            step(0.9, n2.a) + step(0.9, n3.a) +
+            step(0.9, n4.a) + step(0.9, n5.a) +
+            step(0.9, n6.a) + step(0.9, n7.a);
+
+        float firing = step(0.9, self.a);
+        float ready = 1.0 - step(0.3, self.a);
+        float exactlyTwo = step(1.5, fireSum) * step(fireSum, 2.5);
+        float next = firing * 0.5 + ready * exactlyTwo;
+
+        float seed = step(2.20, hash(c + startRandom * 21.0));
+        if (time < 0.5) {
+            next = seed;
+        } else if (self.a > 0.9 && fireSum > 7.5) {
+            next = seed;
+        }
+
+        vec2 hc = c + floor(time * 1.0);
+        float h = fract(sin(dot(hc, vec2(127.1, 311.7))) * 43758.5453);
+        if (h > SPARK) {
+            next = 2.0;
+        }
+
+        for (int i = 0; i < 10; ++i) {
+            if (i >= pointerCount) break;
+            float r = max(1.5, 0.5 * pointers[i].z / cell);
+            if (distance(pointers[i].xy / cell, c + 0.5) < r) {
+                next = 1.0;
+            }
+        }
+
+        vec3 glow = (n0.rgb + n1.rgb + n2.rgb + n3.rgb +
+            n4.rgb + n5.rgb + n6.rgb + n7.rgb) * BLOOM;
+
+        float boot = smoothstep(0.0, 1.0, time);
+        vec3 trail = self.rgb * DECAY * boot;
+
+        vec3 color;
+        if (next > 0.9) {
+            color = vec3(1.0, 0.95, 0.972);
+        } else if (next > 0.3) {
+            color = vec3(0.65, 0.10, 0.42) + trail * 0.635;
+        } else {
+            color = trail * vec3(0.65, 0.50, 1.0);
+        }
+
+        vec2 f = fract(gl_FragCoord.xy / cell) - 0.5;
+        float body = 1.0 - smoothstep(0.30, 0.52, length(f));
+        color *= mix(0.30, 1.0, body);
+
+        vec2 uv = gl_FragCoord.xy / resolution;
+        color += vec3(0.0025, 0.0020, 0.0100) * (1.2 - uv.y);
+
+        color += glow * boot;
+        color = min(color, vec3(1.0));
+
+        gl_FragColor = vec4(color, next);
+    }
+    </script>
+
+    <!-- Simulation Logic -->
+    <script>
+    (function() {
+        const canvas = document.getElementById("glsl-canvas");
+        const container = document.getElementById("canvas-container");
+        const gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
+
+        if (!gl) return;
+
+        function compileShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader;
+            gl.deleteShader(shader);
+        }
+
+        const vertSrc = document.getElementById("2d-vertex-shader").text;
+        const fragSrc = document.getElementById("2d-fragment-shader").text;
+
+        const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertSrc);
+        const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragSrc);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        const positionAttrLoc = gl.getAttribLocation(program, "a_position");
+        const resolutionLoc = gl.getUniformLocation(program, "resolution");
+        const timeLoc = gl.getUniformLocation(program, "time");
+        const startRandomLoc = gl.getUniformLocation(program, "startRandom");
+        const cellRowsLoc = gl.getUniformLocation(program, "cellRows");
+        const pointerCountLoc = gl.getUniformLocation(program, "pointerCount");
+        const backbufferLoc = gl.getUniformLocation(program, "backbuffer");
+        const pointersLocs = [];
+        for(let i=0; i<10; i++) {
+            pointersLocs.push(gl.getUniformLocation(program, `pointers[${i}]`));
+        }
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        const positions = [-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+        let textureWidth = 0, textureHeight = 0;
+        let fbo1, fbo2, tex1, tex2;
+
+        function createAndSetupTexture(gl) {
+            const texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            return texture;
+        }
+
+        function updateTextures(width, height) {
+            if (width === textureWidth && height === textureHeight) return;
+            textureWidth = width;
+            textureHeight = height;
+
+            tex1 = createAndSetupTexture(gl);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            fbo1 = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fbo1);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex1, 0);
+
+            tex2 = createAndSetupTexture(gl);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+            fbo2 = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fbo2);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex2, 0);
+        }
+
+        let activePointers = {};
+
+        function updatePointerData(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = canvas.height - (e.clientY - rect.top);
+            activePointers[e.pointerId] = [x, y, 20.0];
+        }
+
+        container.addEventListener('pointerdown', (e) => { container.setPointerCapture(e.pointerId); updatePointerData(e); });
+        container.addEventListener('pointermove', (e) => { if (activePointers[e.pointerId]) updatePointerData(e); });
+        container.addEventListener('pointerup', (e) => { container.releasePointerCapture(e.pointerId); delete activePointers[e.pointerId]; });
+        container.addEventListener('pointercancel', (e) => { delete activePointers[e.pointerId]; });
+
+        let currentCellRows = 90.0;
+        let startTime = Date.now();
+        let startRandomVal = Math.random() * 100.0;
+
+        document.getElementById("rows-range").addEventListener("input", (e) => {
+            currentCellRows = parseFloat(e.target.value);
+            document.getElementById("rows-valinnerText" in document.getElementById("rows-val") ? "" : "rows-val").innerText = currentCellRows;
+        });
+
+        function clearSimulation() {
+            startTime = Date.now();
+            startRandomVal = Math.random() * 100.0;
+            if (fbo1 && fbo2) {
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo1);
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.bindFramebuffer(gl.FRAMEBUFFER, fbo2);
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+            }
+        }
+
+        document.getElementById("shader-clear").addEventListener("click", clearSimulation);
+
+        let currentTexture = null;
+        let currentFBO = null;
+
+        function render() {
+            const displayWidth = window.innerWidth;
+            const displayHeight = window.innerHeight;
+
+            if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+                canvas.width = displayWidth;
+                canvas.height = displayHeight;
+                updateTextures(displayWidth, displayHeight);
+            }
+
+            if (!fbo1 || !fbo2) {
+                requestAnimationFrame(render);
+                return;
+            }
+
+            let readTex = currentTexture || tex1;
+            let writeFbo = currentFBO === fbo1 ? fbo2 : fbo1;
+            let writeTex = writeFbo === fbo1 ? tex1 : tex2;
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
+            gl.viewport(0, 0, canvas.width, canvas.height);
+
+            gl.useProgram(program);
+
+            gl.enableVertexAttribArray(positionAttrLoc);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(positionAttrLoc, 2, gl.FLOAT, false, 0, 0);
+
+            gl.uniform2f(resolutionLoc, canvas.width, canvas.height);
+            const currentTime = (Date.now() - startTime) * 0.001;
+            gl.uniform1f(timeLoc, currentTime);
+            gl.uniform1f(startRandomLoc, startRandomVal);
+            gl.uniform1f(cellRowsLoc, currentCellRows);
+
+            const pointerKeys = Object.keys(activePointers);
+            gl.uniform1i(pointerCountLoc, pointerKeys.length);
+            for(let i=0; i<10; i++) {
+                if (i < pointerKeys.length) {
+                    const p = activePointers[pointerKeys[i]];
+                    gl.uniform3f(pointersLocs[i], p[0], p[1], p[2]);
+                } else {
+                    gl.uniform3f(pointersLocs[i], 0, 0, 0);
+                }
+            }
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, readTex);
+            gl.uniform1i(backbufferLoc, 0);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+            currentTexture = writeTex;
+            currentFBO = writeFbo;
+
+            requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+    })();
+    </script>
+
+</body>
+  </html>
+      
