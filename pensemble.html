@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pendulum Ensemble</title>
+<style>
+:root{color-scheme:dark;font:13px system-ui,sans-serif;color:#ddd;background:#080b12}*{box-sizing:border-box}body{margin:0;overflow:hidden}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}button,input,select{font:inherit}button,select{color:#ddd;background:#202632;border:1px solid #414956;border-radius:5px;padding:6px 9px}button{cursor:pointer}button:hover{background:#303a49}input{accent-color:#7bcec1;min-width:0}#toggle{position:fixed;top:14px;left:14px;z-index:3}#panel{position:fixed;top:54px;left:14px;width:300px;max-width:calc(100vw - 28px);max-height:calc(100dvh - 70px);overflow:auto;background:#101620ed;border:1px solid #35404c;border-radius:8px;padding:14px;z-index:2;scrollbar-width:thin}#panel[hidden]{display:none}h1{font-size:15px;font-weight:500;margin:0 0 12px}h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:#99aaba;margin:17px 0 9px}label.row{display:grid;grid-template-columns:105px 1fr;align-items:center;gap:8px;margin:8px 0}.checks{display:flex;flex-wrap:wrap;gap:9px;margin:10px 0}.checks label{display:flex;gap:4px;align-items:center}.buttons{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0}input[type=number]{width:100%;background:#080e17;color:#eee;border:1px solid #394451;border-radius:4px;padding:5px}input[type=color]{width:100%;height:29px;background:none;border:0}small{display:block;color:#9caaba;line-height:1.5;margin-top:10px}.value{font-variant-numeric:tabular-nums}#status{color:#9caaba;font-size:12px;margin:8px 0}summary{cursor:pointer;color:#aebdcb;margin:12px 0}
+</style>
+</head>
+<body>
+<canvas id="art"></canvas><canvas id="scene" aria-label="Interactive pendulum ensemble"></canvas>
+<button id="toggle" aria-expanded="true" aria-controls="panel">Hide controls</button>
+<section id="panel">
+<h1>Pendulum Ensemble</h1>
+<div class="buttons"><button id="pause">Pause</button><button id="clear">Clear ink</button><button id="reset">Reset motion</button></div>
+<label class="row">Arrangement<select id="layout"><option value="shared">Shared anchor</option><option value="separate">Separate anchors</option></select></label>
+<div class="checks"><label><input id="arms" type="checkbox" checked>Mechanisms</label><label><input id="trails" type="checkbox" checked>Trails</label><label><input id="threads" type="checkbox">Threads</label><label><input id="polygons" type="checkbox">Polygon</label><label><input id="fills" type="checkbox">Fill</label></div>
+<label class="row">Ink<select id="ink"><option value="fade">Fading</option><option value="persist">Persistent</option></select></label>
+<label class="row">Trail life <span><input id="life" type="range" min="0.3" max="30" step="0.1" value="9"></span></label>
+<label class="row">Drawing opacity<input id="opacity" type="range" min="0.02" max="0.8" step="0.01" value="0.28"></label>
+<label class="row">Playback speed<input id="speed" type="range" min="0.1" max="2" step="0.05" value="1"></label>
+<label class="row">Gravity<input id="gravity" type="range" min="0" max="20" step="0.1" value="9.81"></label>
+<h2>Selected pendulum</h2>
+<label class="row">Pendulum<select id="selected"></select></label>
+<div class="buttons"><button id="duplicate">Duplicate + offset</button><button id="add">Add different</button><button id="remove">Remove</button></div>
+<label class="row">Color<input id="color" type="color"></label>
+<div class="checks"><label><input id="draw" type="checkbox">Contribute to drawing</label></div>
+<label class="row">First length<input id="l1" type="number" min="0.1" max="3" step="0.05"></label>
+<label class="row">Second length<input id="l2" type="number" min="0.1" max="3" step="0.05"></label>
+<label class="row">First mass<input id="m1" type="number" min="0.1" max="20" step="0.1"></label>
+<label class="row">Second mass<input id="m2" type="number" min="0.1" max="20" step="0.1"></label>
+<label class="row">Damping / second<input id="damping" type="number" min="0" max="2" step="0.001"></label>
+<details open><summary>Release state — degrees and degrees/second</summary>
+<label class="row">First angle<input id="a1" type="number" min="-3600" max="3600" step="0.1"></label>
+<label class="row">Second angle<input id="a2" type="number" min="-3600" max="3600" step="0.1"></label>
+<label class="row">First velocity<input id="v1" type="number" min="-1440" max="1440" step="1"></label>
+<label class="row">Second velocity<input id="v2" type="number" min="-1440" max="1440" step="1"></label>
+<button id="apply">Release selected from these values</button></details>
+<div id="status"></div>
+<small>Drag a bob to pose it; release to continue. Pose edits become its new reset state. Drag an anchor diamond to move it (all anchors move together in shared mode). Mechanisms must be visible for dragging. Pause to arrange several before releasing. Lengths are relative units; angles are measured from downward vertical.</small>
+<small>Double pendulums only in this first version. Maximum 24. Settings live in this session only. Space pauses when the canvas or page has focus.</small>
+</section>
+<script>
+'use strict';
+const $=id=>document.getElementById(id), art=$('art'), scene=$('scene');
+const ink=art.getContext('2d'), ctx=scene.getContext('2d');
+const TAU=Math.PI*2, RAD=Math.PI/180, palette=['#63dfd0','#f5a3b7','#e8d583','#98abf6','#c59ee8','#e89a6b'];
+let W=innerWidth,H=innerHeight,DPR=1,scale=100,pendulums=[],selection=0,paused=false,shared={x:.5,y:.34},last=0,accumulator=0,sampleClock=0,previous=null;
+const drags=new Map();
+function make(i){return {l1:1,l2:1,m1:1,m2:1,damping:.002,a1:125+i*.025,a2:-20+i*.025,v1:0,v2:0,color:palette[i%palette.length],draw:true,anchor:{x:.5,y:.35},state:[0,0,0,0]};}
+function restart(p){p.state=[p.a1*RAD,p.a2*RAD,p.v1*RAD,p.v2*RAD];previous=null;}
+for(let i=0;i<7;i++){const p=make(i);restart(p);pendulums.push(p);}
+function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(devicePixelRatio||1,2);for(const c of [art,scene]){c.width=Math.round(W*DPR);c.height=Math.round(H*DPR);}ink.setTransform(DPR,0,0,DPR,0,0);ctx.setTransform(DPR,0,0,DPR,0,0);updateScale();previous=null;}
+function updateScale(){let maxLength=Math.max(2,...pendulums.map(p=>p.l1+p.l2));scale=Math.min(W,H)*.43/maxLength;}
+function arrange(){const n=pendulums.length,cols=Math.ceil(Math.sqrt(n*W/H)),rows=Math.ceil(n/cols);pendulums.forEach((p,i)=>p.anchor={x:(i%cols+.5)/cols,y:(Math.floor(i/cols)+.33)/rows});previous=null;}
+function origin(p){const a=$('layout').value==='shared'?shared:p.anchor;return {x:a.x*W,y:a.y*H};}
+function points(p){const o=origin(p),a=p.state[0],b=p.state[1];const q={x:o.x+Math.sin(a)*p.l1*scale,y:o.y+Math.cos(a)*p.l1*scale};return [o,q,{x:q.x+Math.sin(b)*p.l2*scale,y:q.y+Math.cos(b)*p.l2*scale}];}
+function derivative(p,s){const [a,b,u,v]=s,d=a-b,g=+$('gravity').value,M=p.m1,N=p.m2,L=p.l1,K=p.l2,den=2*M+N-N*Math.cos(2*d);
+return [u,v,(-g*(2*M+N)*Math.sin(a)-N*g*Math.sin(a-2*b)-2*N*Math.sin(d)*(v*v*K+u*u*L*Math.cos(d)))/(L*den)-p.damping*u,
+2*Math.sin(d)*(u*u*L*(M+N)+g*(M+N)*Math.cos(a)+v*v*K*N*Math.cos(d))/(K*den)-p.damping*v];}
+function integrate(p,h){const s=p.state,k1=derivative(p,s),k2=derivative(p,s.map((x,i)=>x+h*k1[i]/2)),k3=derivative(p,s.map((x,i)=>x+h*k2[i]/2)),k4=derivative(p,s.map((x,i)=>x+h*k3[i]));const next=s.map((x,i)=>x+h*(k1[i]+2*k2[i]+2*k3[i]+k4[i])/6);if(next.every(Number.isFinite)){next[0]=((next[0]+Math.PI)%TAU+TAU)%TAU-Math.PI;next[1]=((next[1]+Math.PI)%TAU+TAU)%TAU-Math.PI;p.state=next;}else{restart(p);paused=true;$('pause').textContent='Resume';$('status').textContent='Motion paused after numerical overflow; reduce speed or extreme settings.';}}
+function dragging(p){return [...drags.values()].some(d=>d.p===p&&d.kind!=='anchor');}
+function fade(dt){if($('ink').value!=='fade')return;ink.save();ink.globalCompositeOperation='destination-out';ink.fillStyle=`rgba(0,0,0,${1-Math.exp(-dt/(+$('life').value))})`;ink.fillRect(0,0,W,H);ink.restore();}
+function drawSample(){const ends=pendulums.map(p=>points(p)[2]),alpha=+$('opacity').value;ink.lineWidth=.75;ink.lineJoin='round';
+if(previous&&$('trails').checked)pendulums.forEach((p,i)=>{if(!p.draw)return;ink.globalAlpha=alpha;ink.strokeStyle=p.color;ink.beginPath();ink.moveTo(previous[i].x,previous[i].y);ink.lineTo(ends[i].x,ends[i].y);ink.stroke();});
+const active=ends.map((e,i)=>({...e,p:pendulums[i]})).filter(e=>e.p.draw);
+if($('threads').checked)for(let i=1;i<active.length;i++){ink.globalAlpha=alpha*.28;ink.strokeStyle=active[i].p.color;ink.beginPath();ink.moveTo(active[i-1].x,active[i-1].y);ink.lineTo(active[i].x,active[i].y);ink.stroke();}
+if(active.length>=3&&($('polygons').checked||$('fills').checked)){ink.beginPath();active.forEach((e,i)=>i?ink.lineTo(e.x,e.y):ink.moveTo(e.x,e.y));ink.closePath();ink.strokeStyle=pendulums[selection].color;ink.fillStyle=pendulums[selection].color;if($('fills').checked){ink.globalAlpha=alpha*.025;ink.fill('evenodd');}if($('polygons').checked){ink.globalAlpha=alpha*.22;ink.stroke();}}
+ink.globalAlpha=1;previous=ends;}
+function mechanisms(){ctx.clearRect(0,0,W,H);if(!$('arms').checked)return;pendulums.forEach((p,i)=>{const q=points(p),sel=i===selection;ctx.globalAlpha=sel?.85:.27;ctx.strokeStyle=p.color;ctx.lineWidth=sel?1.3:.7;ctx.beginPath();ctx.moveTo(q[0].x,q[0].y);ctx.lineTo(q[1].x,q[1].y);ctx.lineTo(q[2].x,q[2].y);ctx.stroke();for(let j=1;j<=2;j++){ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(q[j].x,q[j].y,Math.min(10,3+Math.sqrt(j===1?p.m1:p.m2)),0,TAU);ctx.fill();}ctx.save();ctx.translate(q[0].x,q[0].y);ctx.rotate(Math.PI/4);ctx.strokeRect(-4,-4,8,8);ctx.restore();});ctx.globalAlpha=1;}
+function frame(t){const dt=last?Math.min((t-last)/1000,.05):0;last=t;if(!paused){fade(dt);accumulator+=dt*(+$('speed').value);const h=1/240;let steps=0;while(accumulator>=h&&steps++<32){for(const p of pendulums)if(!dragging(p))integrate(p,h);accumulator-=h;sampleClock+=h;if(sampleClock>=1/60){drawSample();sampleClock-=1/60;}}}mechanisms();requestAnimationFrame(frame);}
+const physical=['l1','l2','m1','m2','damping'],release=['a1','a2','v1','v2'];
+function populate(){const select=$('selected');select.replaceChildren(...pendulums.map((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=`${i+1} — ${p.color}`;return o;}));select.value=selection;const p=pendulums[selection];for(const id of [...physical,...release,'color'])$(id).value=p[id];$('draw').checked=p.draw;$('status').textContent=`${pendulums.length} pendulums · selected ${selection+1}`;}
+for(const id of physical)$(id).addEventListener('change',()=>{const el=$(id),n=Number(el.value);if(!Number.isFinite(n)||!el.checkValidity()){el.value=pendulums[selection][id];return;}pendulums[selection][id]=n;updateScale();previous=null;});
+for(const id of release)$(id).addEventListener('change',()=>{const el=$(id);if(el.checkValidity()&&Number.isFinite(+el.value))pendulums[selection][id]=+el.value;else el.value=pendulums[selection][id];});
+$('color').oninput=()=>{pendulums[selection].color=$('color').value;};$('draw').onchange=()=>{pendulums[selection].draw=$('draw').checked;previous=null;};
+$('selected').onchange=()=>{selection=+$('selected').value;populate();};
+function togglePause(){paused=!paused;accumulator=0;$('pause').textContent=paused?'Resume':'Pause';}
+$('pause').onclick=togglePause;$('clear').onclick=()=>ink.clearRect(0,0,W,H);$('reset').onclick=()=>{pendulums.forEach(restart);accumulator=0;sampleClock=0;};$('apply').onclick=()=>restart(pendulums[selection]);
+$('layout').onchange=()=>{arrange();previous=null;};
+function add(duplicate){if(pendulums.length>=24)return;let p;if(duplicate){p=JSON.parse(JSON.stringify(pendulums[selection]));p.a1=p.state[0]/RAD+.05;p.a2=p.state[1]/RAD+.05;p.v1=p.state[2]/RAD;p.v2=p.state[3]/RAD;p.color=palette[pendulums.length%palette.length];p.anchor={...p.anchor,x:Math.min(.95,p.anchor.x+.025)};}else{p=make(pendulums.length);p.a1=70+Math.random()*100;p.a2=-90+Math.random()*180;p.l1=.7+Math.random()*.6;p.l2=.7+Math.random()*.6;}restart(p);pendulums.push(p);selection=pendulums.length-1;if(!duplicate)arrange();updateScale();populate();previous=null;}
+$('duplicate').onclick=()=>add(true);$('add').onclick=()=>add(false);$('remove').onclick=()=>{if(pendulums.length<=1)return;drags.clear();pendulums.splice(selection,1);selection=Math.min(selection,pendulums.length-1);updateScale();populate();previous=null;};
+$('toggle').onclick=()=>{const hide=!$('panel').hidden;$('panel').hidden=hide;$('toggle').textContent=hide?'Controls':'Hide controls';$('toggle').setAttribute('aria-expanded',String(!hide));};
+addEventListener('keydown',e=>{if(e.code==='Space'&&!['INPUT','SELECT','BUTTON','TEXTAREA'].includes(document.activeElement.tagName)){e.preventDefault();togglePause();}});
+function pos(e){const r=scene.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+scene.addEventListener('pointerdown',e=>{if(!$('arms').checked)return;const m=pos(e);let hit=null,best=25;const order=pendulums.map((p,i)=>i).filter(i=>i!==selection);order.push(selection);for(const i of order){const p=pendulums[i],q=points(p);for(let j=0;j<3;j++){const dist=Math.hypot(m.x-q[j].x,m.y-q[j].y);if(dist<=best){best=dist;hit={p,index:i,kind:j===0?'anchor':j,q};}}}if(!hit)return;if([...drags.values()].some(d=>d.p===hit.p||d.kind==='anchor'&&hit.kind==='anchor'&&$('layout').value==='shared'))return;selection=hit.index;populate();scene.setPointerCapture(e.pointerId);drags.set(e.pointerId,hit);e.preventDefault();});
+scene.addEventListener('pointermove',e=>{const d=drags.get(e.pointerId);if(!d)return;const m=pos(e),p=d.p;if(d.kind==='anchor'){const a=$('layout').value==='shared'?shared:p.anchor;a.x=Math.max(0,Math.min(1,m.x/W));a.y=Math.max(0,Math.min(1,m.y/H));}else{const q=points(p),base=d.kind===1?q[0]:q[1];p.state[d.kind-1]=Math.atan2(m.x-base.x,m.y-base.y);p.state[2]=p.state[3]=0;}previous=null;e.preventDefault();});
+function releasePointer(e){const d=drags.get(e.pointerId);if(!d)return;if(d.kind!=='anchor'){const p=d.p;p.a1=p.state[0]/RAD;p.a2=p.state[1]/RAD;p.v1=p.v2=0;}drags.delete(e.pointerId);populate();previous=null;}
+scene.addEventListener('pointerup',releasePointer);scene.addEventListener('pointercancel',releasePointer);scene.addEventListener('lostpointercapture',releasePointer);
+addEventListener('blur',()=>{for(const d of drags.values())if(d.kind!=='anchor'){d.p.a1=d.p.state[0]/RAD;d.p.a2=d.p.state[1]/RAD;d.p.v1=d.p.v2=0;}drags.clear();previous=null;});
+addEventListener('resize',resize);document.addEventListener('visibilitychange',()=>{last=0;accumulator=0;});
+arrange();resize();populate();requestAnimationFrame(frame);
+</script>
+</body>
+                            </html>
